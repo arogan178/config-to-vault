@@ -44,7 +44,7 @@ updated    orders-service -> secret/my-app/prod/orders-service
 Summary: 1 created, 1 updated, 2 unchanged, 0 failed
 ```
 
-The exit code is 1 if any file fails, 2 for usage or configuration errors.
+The exit code is 1 if any file fails, 2 for usage or configuration errors. Before reading anything, the target mount is checked to be KV v2, so a KV v1 mount is refused instead of getting `data/` folders.
 
 ## Sources
 
@@ -57,15 +57,16 @@ Choose where files come from.
 
 ### Local resolution rules
 
-- YAML files may hold several documents. Documents without a profile condition form the base. Documents with `spring.config.activate.on-profile` (or legacy `spring.profiles`) that name `--profile` override it. The value can be a comma-separated list or a YAML list.
-- Nested YAML is flattened to dotted keys (`a.b.c`, lists as `a[0]`). Scalars keep their type.
+- YAML files may hold several documents, and `.properties` files may be split with `#---` or `!---` lines. As in Spring Boot 2.4+, documents apply in file order and later ones win. A document with `spring.config.activate.on-profile` (or legacy `spring.profiles`) applies only when it matches `--profile`. The value can be a comma-separated list or a YAML list of profile expressions (`prod`, `!dev`, `prod | eu`, `(prod | eu) & !dev`).
+- Nested YAML is flattened to dotted keys (`a.b.c`, lists as `a[0]`). Scalars keep their type. `null` and empty lists become `""`.
+- `.properties` files follow `java.util.Properties` rules, including `\` escapes and line continuations.
 - `spring.profile*` and `spring.config.activate*` keys are removed from the output.
 - With `--shared-base application`, `application.yml` (or `.yaml`, `.properties`, `.json`) in the root of `--source-dir` is merged first and not written as a secret itself.
-- Lists are merged key by key, not replaced as a whole.
+- A list set by a later document (or by the file over the shared base) replaces the earlier list as a whole, as Spring's binder does.
 
 ### Config Server merge
 
-Property sources that carry a `spring.profile*` key are applied after the other sources, so profile-specific values win. Profile keys are then removed.
+The Config Server lists `propertySources` highest precedence first, so earlier sources win. Lists are replaced as a whole and profile keys are removed. A response without property sources fails that file instead of emptying the secret.
 
 ## Flags
 
@@ -73,13 +74,13 @@ Property sources that carry a `spring.profile*` key are applied after the other 
 | --- | --- |
 | `--profile` | Required. Profile to resolve and the `{profile}` path value. |
 | `--vault-base` | Required. Base path. The first segment is the KV v2 mount. |
-| `--vault-path-template` | Default `{base}/{profile}/{name}`. Must contain `{name}`. |
+| `--vault-path-template` | Default `{base}/{profile}/{name}`. Must contain `{name}`; only `{base}`, `{profile}` and `{name}` are allowed. |
 | `--source-dir` | Folder with config files. Default: current directory. |
 | `--shared-base NAME` | Shared base file merged first (local resolution only). |
 | `--config-server URL_TEMPLATE` | Resolve through a Config Server. URL contains `{name}` and optionally `{profile}`. |
 | `--bitbucket-url` | List names from Bitbucket Cloud. Needs `--config-server`. |
 | `--apply` | Write to Vault. |
-| `--prune` | Delete secrets in the target folder that have no source file. Needs a template ending in `/{name}`. |
+| `--prune` | Delete secrets in the target folder that have no source file. Needs a template ending in `/{name}`, with `{name}` used once. |
 | `--show-values` | Print values in the plan. Off by default. |
 | `--workers` | Thread pool size. Default 5. |
 

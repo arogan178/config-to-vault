@@ -79,3 +79,18 @@ def test_prune_dry_run_keeps_secret(vault, tmp_path, capsys):
     assert run(src, "--prune") == 0
     assert "would-delete" in capsys.readouterr().out
     assert "feature-flags" in vault.list_secrets(f"{BASE}/prod")
+
+
+def test_refuses_kv_v1_mount(vault, tmp_path, capsys):
+    headers = {"X-Vault-Token": "root"}
+    requests.post(f"{ADDR}/v1/sys/mounts/ctv-kv1", json={"type": "kv", "options": {"version": "1"}}, headers=headers)
+    try:
+        assert (
+            main(["--source-dir", "examples/config", "--profile", "prod", "--vault-base", "ctv-kv1/app", "--apply"])
+            == 2
+        )
+        assert "KV v2" in capsys.readouterr().err
+        listed = requests.request("LIST", f"{ADDR}/v1/ctv-kv1/", headers=headers)
+        assert listed.status_code == 404
+    finally:
+        requests.delete(f"{ADDR}/v1/sys/mounts/ctv-kv1", headers=headers)

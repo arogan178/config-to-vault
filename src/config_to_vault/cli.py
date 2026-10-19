@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .plan import build_plan, prune_dir, vault_path
-from .resolve import merge_property_sources, resolve_file
+from .resolve import merge_flat, merge_property_sources, resolve_file
 from .sources import ConfigServerClient, list_bitbucket_files, list_local_files
 from .vault import VaultClient, describe_error
 
@@ -84,7 +84,7 @@ def process(name, path, args, vault, config_client, shared_path) -> Result:
         else:
             result.new = resolve_file(path, args.profile)
             if shared_path:
-                result.new = {**resolve_file(shared_path, args.profile), **result.new}
+                result.new = merge_flat(resolve_file(shared_path, args.profile), result.new)
         existing = vault.read_secret(result.path)
         result.old = existing or {}
         result.action, result.changed = build_plan(existing, result.new)
@@ -139,13 +139,12 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--bitbucket-url only lists file names; add --config-server to resolve them")
     if args.shared_base and args.config_server:
         parser.error("--shared-base only applies to local resolution")
-    if "{name}" not in args.vault_path_template:
-        parser.error("--vault-path-template must contain {name}")
-    if args.prune:
-        try:
+    try:
+        first_path = vault_path(args.vault_path_template, args.vault_base, args.profile, "x")
+        if args.prune:
             prune_dir(args.vault_path_template, args.vault_base, args.profile)
-        except ValueError as exc:
-            parser.error(str(exc))
+    except ValueError as exc:
+        parser.error(str(exc))
 
     addr = os.getenv("VAULT_ADDR", "")
     if not addr:
@@ -173,6 +172,7 @@ def main(argv: list[str] | None = None) -> int:
             k8s_mount=os.getenv("VAULT_K8S_MOUNT", ""),
             namespace=os.getenv("VAULT_NAMESPACE", ""),
         )
+        vault.check_kv2(first_path)
     except Exception as exc:
         print(f"error: {describe_error(exc)}", file=sys.stderr)
         return 2

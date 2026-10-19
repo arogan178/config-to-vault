@@ -1,5 +1,6 @@
 import pytest
 
+from config_to_vault.cli import main
 from config_to_vault.plan import build_plan, diff_keys, prune_dir, vault_path
 from config_to_vault.sources import ConfigServerClient, bitbucket_api_url
 from config_to_vault.vault import kv_url
@@ -16,10 +17,29 @@ def test_vault_path_rejects_unsafe_parts(profile, name):
         vault_path("{base}/{profile}/{name}", "secret", profile, name)
 
 
+@pytest.mark.parametrize(
+    "template,base",
+    [("{base}/{profile}/{name}", ""), ("{base}/{profile}/{name}", "secret/../sys"), ("{base}//{name}", "secret"),
+     ("{name}", "secret"), ("{base}/{profile}", "secret"), ("{base}/{other}/{name}", "secret"), ("{base}/{}", "s")],
+)  # fmt: skip
+def test_vault_path_rejects_bad_template_or_base(template, base):
+    with pytest.raises(ValueError):
+        vault_path(template, base, "dev", "orders")
+
+
 def test_prune_dir():
     assert prune_dir("{base}/{profile}/{name}", "secret/app", "dev") == "secret/app/dev"
-    with pytest.raises(ValueError):
-        prune_dir("{base}/{name}/{profile}", "secret", "dev")
+    for template in ("{base}/{name}/{profile}", "{base}/{name}/{profile}/{name}"):
+        with pytest.raises(ValueError):
+            prune_dir(template, "secret", "dev")
+
+
+def test_bad_template_is_a_usage_error(monkeypatch):
+    monkeypatch.setenv("VAULT_ADDR", "http://127.0.0.1:1")
+    for template in ("{base}/{oops}/{name}", "{base}/{0}/{name}"):
+        with pytest.raises(SystemExit) as info:
+            main(["--profile", "p", "--vault-base", "secret", "--vault-path-template", template, "--prune"])
+        assert info.value.code == 2
 
 
 def test_kv_url_uses_first_segment_as_mount():

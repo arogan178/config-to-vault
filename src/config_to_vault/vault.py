@@ -1,8 +1,10 @@
 """Minimal HashiCorp Vault KV v2 client."""
 
+import re
 import urllib.parse
 
 import requests
+import yaml
 
 from .http import TIMEOUT, new_session
 
@@ -52,6 +54,22 @@ class VaultClient:
             raise RuntimeError("Vault login did not return a client token")
         return token
 
+    def check_kv2(self, path: str) -> None:
+        """Fail unless the first segment of `path` is a KV v2 mount; a KV v1 mount would take data/ as a folder."""
+        url = f"{self.addr}/v1/sys/internal/ui/mounts/{urllib.parse.quote(path.strip('/'))}"
+        response = self.session.get(url, timeout=TIMEOUT)
+        if response.status_code in (403, 404):
+            return  # endpoint not available to this token or Vault version
+        response.raise_for_status()
+        data = response.json().get("data") or {}
+        mount = path.strip("/").split("/")[0] + "/"
+        version = (data.get("options") or {}).get("version")
+        if data.get("path") != mount or data.get("type") != "kv" or version != "2":
+            raise RuntimeError(
+                f"{path} is in mount {data.get('path')!r} ({data.get('type')} v{version}); "
+                f"expected the KV v2 mount {mount!r}"
+            )
+
     def read_secret(self, path: str) -> dict | None:
         """Current secret data, or None if the secret does not exist."""
         response = self.session.get(kv_url(self.addr, "data", path), timeout=TIMEOUT)
@@ -80,7 +98,14 @@ class VaultClient:
 
 
 def describe_error(exc: Exception) -> str:
-    """Short error text without response bodies."""
+    """Short error text without response bodies, file contents or URL credentials."""
     if isinstance(exc, requests.exceptions.HTTPError) and exc.response is not None:
-        return f"HTTP {exc.response.status_code} for {exc.response.request.method} {exc.response.url}"
-    return f"{type(exc).__name__}: {exc}"
+        text = f"HTTP {exc.response.status_code} for {exc.response.request.method} {exc.response.url}"
+    elif isinstance(exc, yaml.MarkedYAMLError):
+        # str() would include a snippet of the offending line, which may hold a secret.
+        mark = exc.problem_mark
+        where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+        text = f"{type(exc).__name__}: {exc.problem}{where}"
+    else:
+        text = f"{type(exc).__name__}: {exc}"
+    return re.sub(r"://[^/@\s]+@", "://***@", text)
