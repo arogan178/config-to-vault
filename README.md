@@ -26,8 +26,9 @@ flowchart LR
 ## Install
 
 ```sh
-pip install .            # or: uv tool install .
-docker build -t config-to-vault .
+uvx config-to-vault --help                     # run without installing
+uv tool install config-to-vault                # or: pip install config-to-vault
+docker run --rm ghcr.io/arogan178/config-to-vault --help
 ```
 
 Python 3.11 or newer.
