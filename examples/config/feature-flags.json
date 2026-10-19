@@ -1,0 +1,6 @@
+{
+  "features": {
+    "new-checkout": true,
+    "max-cart-items": 50
+  }
+}

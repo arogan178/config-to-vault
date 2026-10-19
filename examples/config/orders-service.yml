@@ -1,0 +1,17 @@
+orders:
+  db:
+    host: db.internal.example
+    port: 5432
+  retries: 3
+  regions:
+    - eu
+    - us
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+orders:
+  db:
+    host: db.prod.example
+  retries: 5
