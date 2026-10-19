@@ -8,6 +8,21 @@ Config usually lives in git as Spring-style YAML or `.properties` files. Some co
 - Unchanged secrets are not rewritten. The plan lists changed key names, never values (unless `--show-values`).
 - `--prune` removes secrets whose file was deleted.
 
+```mermaid
+flowchart LR
+    subgraph git["Config in git"]
+        files["orders.yml<br/>billing.properties<br/>application.yml"]
+    end
+    cs["Spring Cloud<br/>Config Server<br/>(optional)"]
+    resolve["Resolve for --profile<br/>merge, flatten to keys"]
+    plan["Plan against Vault<br/>create / update / unchanged / prune"]
+    vault[("Vault KV v2<br/>base/profile/name")]
+    files --> resolve
+    files -. "names" .-> cs -. "resolved" .-> plan
+    resolve --> plan
+    plan -- "--apply" --> vault
+```
+
 ## Install
 
 ```sh
